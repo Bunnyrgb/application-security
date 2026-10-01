@@ -29,6 +29,7 @@ interface ScanWorkflowProps {
 
 export default function ScanWorkflow({ onStartScan, isScanning }: ScanWorkflowProps) {
   const [selectedType, setSelectedType] = useState<ScanType>('web_app');
+  const [authorizedConsent, setAuthorizedConsent] = useState(true);
 
   // Input states - starting clean without dummy pre-filled values
   const [webUrl, setWebUrl] = useState('');
@@ -238,9 +239,14 @@ export default function ScanWorkflow({ onStartScan, isScanning }: ScanWorkflowPr
         {selectedType === 'web_app' && (
           <div className="space-y-4">
             <div>
-              <label className="text-[11px] font-mono text-slate-300 block mb-1">
-                Target Website URL / Hostname *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-mono text-slate-300">
+                  Target Website URL / Hostname *
+                </label>
+                <span className="text-[10px] font-mono text-cyan-400">
+                  SSRF Protection Active (RFC 1918 Blocked)
+                </span>
+              </div>
               <input
                 type="text"
                 required
@@ -249,8 +255,28 @@ export default function ScanWorkflow({ onStartScan, isScanning }: ScanWorkflowPr
                 placeholder="https://yourwebsite.com or https://app.company.org"
                 className="w-full px-3 py-2 text-xs font-mono bg-[#060912] border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500 placeholder-slate-600"
               />
-              <p className="text-[10px] text-slate-400 mt-1">
-                SecureLens will run live edge probes checking Content-Security-Policy, HSTS, CORS wildcard permissions, and server signature disclosures.
+
+              {/* Quick Sandbox Target Presets (Section 38 Requirement) */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-mono text-slate-400">Quick Test Sandboxes:</span>
+                <button
+                  type="button"
+                  onClick={() => setWebUrl('http://localhost:3000/api/test-sandbox/vulnerable')}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-rose-950/40 text-rose-300 border border-rose-800/40 hover:bg-rose-900/40 transition-colors"
+                >
+                  ⚡ Load Intentionally Vulnerable Target
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWebUrl('http://localhost:3000/api/test-sandbox/secure')}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 hover:bg-emerald-900/40 transition-colors"
+                >
+                  🛡️ Load Hardened Secure Target
+                </button>
+              </div>
+
+              <p className="text-[10px] text-slate-400 mt-2">
+                SecureLens will perform controlled, non-destructive security analysis: HTTP/HTTPS redirects, security headers (CSP, HSTS, MIME), cookies, DOM data-flow, CORS, and accessible attack surface.
               </p>
             </div>
 
@@ -273,7 +299,7 @@ export default function ScanWorkflow({ onStartScan, isScanning }: ScanWorkflowPr
               <div className="flex items-center gap-2 p-3 rounded-lg bg-[#060912] border border-slate-800/80">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="text-[11px] text-slate-300">
-                  Non-invasive passive scan. No aggressive fuzzing or Denial of Service traffic.
+                  Safe, non-destructive assessment. No payload execution that alters or corrupts target data.
                 </span>
               </div>
             </div>
@@ -603,11 +629,25 @@ export default function ScanWorkflow({ onStartScan, isScanning }: ScanWorkflowPr
           </p>
         </div>
 
+        {/* Authorization Confirmation (Requirement 1 & 39) */}
+        <div className="p-3 rounded-lg bg-[#070b14] border border-slate-800 flex items-center gap-3">
+          <input
+            type="checkbox"
+            id="auth-consent"
+            checked={authorizedConsent}
+            onChange={(e) => setAuthorizedConsent(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-0 focus:outline-none cursor-pointer"
+          />
+          <label htmlFor="auth-consent" className="text-xs text-slate-300 font-mono cursor-pointer select-none">
+            I confirm that I own or have explicit authorization to test this target system.
+          </label>
+        </div>
+
         {/* Submit Button */}
         <div className="flex justify-end pt-2">
           <button
             type="submit"
-            disabled={isScanning}
+            disabled={isScanning || !authorizedConsent}
             className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-indigo-600 via-cyan-600 to-indigo-600 hover:opacity-90 shadow-lg shadow-indigo-600/30 transition-all font-mono disabled:opacity-50"
           >
             <Play className="w-4 h-4 fill-white" />

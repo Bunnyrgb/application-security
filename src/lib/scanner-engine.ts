@@ -4,13 +4,21 @@ import {
   DetectedTechnology, 
   ScoreBreakdown, 
   ScanTelemetryStep,
-  ScanType 
+  ScanType,
+  ApplicationArchitecture,
+  DiscoveredEndpoint,
+  DiscoveredResource
 } from '@/types/security';
+import { analyzeJavaScriptDataFlow } from '@/lib/data-flow-analyzer';
+import { FalsePositiveEngine } from '@/lib/false-positive-engine';
 
 export interface ScanResult {
   vulnerabilities: Vulnerability[];
   dependencies: DependencyFinding[];
   detectedTechnologies: DetectedTechnology[];
+  architecture?: ApplicationArchitecture;
+  endpoints?: DiscoveredEndpoint[];
+  resources?: DiscoveredResource[];
   score: number;
   scoreBreakdown: ScoreBreakdown;
   criticalCount: number;
@@ -18,6 +26,9 @@ export interface ScanResult {
   mediumCount: number;
   lowCount: number;
   infoCount: number;
+  confirmedCount?: number;
+  potentialCount?: number;
+  falsePositiveCount?: number;
   telemetryLogs: ScanTelemetryStep[];
 }
 
@@ -125,24 +136,31 @@ function analyzeWebAppTarget(
   if (liveData && Array.isArray(liveData.findings) && liveData.findings.length > 0) {
     liveData.findings.forEach((f: any, idx: number) => {
       vulnerabilities.push({
-        id: `vuln_live_${idx}_${scanId}`,
+        id: f.id || `vuln_live_${idx}_${scanId}`,
         scan_id: scanId,
         application_id: appId,
         title: f.title,
         severity: f.severity,
+        confidence: f.confidence || 'high',
         category: f.category,
         location: f.location || `${domain} (Live HTTP Response)`,
         description: f.description,
+        evidence: f.evidence || `Observed on target ${domain}`,
+        detection_logic: f.detection_logic || 'Multi-stage behavioral & header inspection',
         potential_impact: f.potential_impact || 'Adversary-in-the-Middle injection, Cross-Site Scripting (XSS), or unauthorized UI framing.',
         why_it_matters: f.why_it_matters || 'HTTP security headers and DOM hygiene establish mandatory defenses in user browsers.',
-        recommended_fix: f.recommendation,
+        recommended_fix: f.recommended_fix || f.recommendation,
+        verification_steps: f.verification_steps,
+        references: f.references,
         before_code: f.before_code || `// Target: ${domain}\n// Vulnerable configuration or missing header`,
-        after_code: f.after_code || `// Remediated configuration for ${domain}\n${f.recommendation}`,
+        after_code: f.after_code || `// Remediated configuration for ${domain}`,
         code_language: f.code_language || 'http',
-        cwe_id: f.cwe || 'CWE-693',
+        cwe_id: f.cwe_id || f.cwe || 'CWE-693',
         owasp_category: f.owasp_category || 'A05:2021-Security Misconfiguration',
         cvss_score: f.cvss_score || (f.severity === 'critical' ? 9.0 : f.severity === 'high' ? 7.5 : f.severity === 'medium' ? 5.5 : 3.5),
-        status: 'confirmed',
+        status: f.status || 'confirmed',
+        data_flow: f.data_flow,
+        ai_explanation: f.ai_explanation,
         created_at: new Date().toISOString(),
       });
     });
@@ -156,8 +174,11 @@ function analyzeWebAppTarget(
         application_id: appId,
         title: 'Cleartext HTTP Protocol in Use (Missing TLS/HTTPS)',
         severity: 'high',
+        confidence: 'high',
         category: 'Cryptography',
         location: `${domain} (Port 80 HTTP)`,
+        evidence: `Protocol: ${targetUrl}`,
+        detection_logic: 'Direct verification of unencrypted HTTP scheme.',
         description: `Target ${domain} was requested over unencrypted HTTP. Network traffic, cookies, and parameters can be intercepted or modified in transit.`,
         potential_impact: 'Adversary-in-the-Middle eavesdropping and session token hijacking.',
         why_it_matters: 'HTTPS is required to protect user privacy and guarantee data integrity.',
@@ -179,8 +200,11 @@ function analyzeWebAppTarget(
       application_id: appId,
       title: `Missing Content-Security-Policy (CSP) on ${domain}`,
       severity: 'high',
+      confidence: 'high',
       category: 'Configuration',
       location: `${domain} (HTTP Response Headers)`,
+      evidence: 'Absence of Content-Security-Policy header in HTTP response.',
+      detection_logic: 'Passive header analysis on endpoint.',
       description: `The web application server at ${domain} does not provide a Content-Security-Policy header. Browsers cannot restrict the sources from which scripts, images, and frames can load.`,
       potential_impact: 'Higher vulnerability to Cross-Site Scripting (XSS), script injection, and clickjacking attacks.',
       why_it_matters: 'CSP is a fundamental defense-in-depth HTTP standard that prevents inline scripts and unauthorized cross-domain data exfiltration.',
@@ -201,8 +225,11 @@ function analyzeWebAppTarget(
       application_id: appId,
       title: `Missing Strict-Transport-Security (HSTS) with Preload on ${domain}`,
       severity: 'medium',
+      confidence: 'high',
       category: 'Configuration',
       location: `${domain} (Transport Security)`,
+      evidence: 'Missing Strict-Transport-Security header.',
+      detection_logic: 'HSTS verification routine.',
       description: `The website ${domain} does not enforce HSTS with a long max-age and includeSubDomains directive. Users accessing over insecure connections could be downgraded to plaintext HTTP.`,
       potential_impact: 'Adversary-in-the-Middle (AitM) attacks, SSL stripping, and cookie interception on untrusted public Wi-Fi networks.',
       why_it_matters: 'HSTS instructs modern browsers to only connect over encrypted HTTPS and refuses all insecure HTTP requests automatically.',
@@ -213,7 +240,7 @@ function analyzeWebAppTarget(
       cwe_id: 'CWE-319',
       owasp_category: 'A02:2021-Cryptographic Failures',
       cvss_score: 5.8,
-      status: 'confirmed',
+      status: 'potential',
       created_at: new Date().toISOString(),
     });
 
@@ -223,8 +250,11 @@ function analyzeWebAppTarget(
       application_id: appId,
       title: `Missing X-Frame-Options Header on ${domain} (Clickjacking Risk)`,
       severity: 'medium',
+      confidence: 'high',
       category: 'Configuration',
       location: `${domain} (UI Framing)`,
+      evidence: 'X-Frame-Options and frame-ancestors missing.',
+      detection_logic: 'Clickjacking defense analysis.',
       description: `${domain} does not specify X-Frame-Options (DENY or SAMEORIGIN) or CSP frame-ancestors, permitting framing in malicious iframes.`,
       potential_impact: 'Clickjacking attacks tricking users into executing state-changing operations.',
       why_it_matters: 'X-Frame-Options ensures malicious sites cannot render this application in hidden iframes.',
@@ -262,6 +292,9 @@ function analyzeWebAppTarget(
     vulnerabilities,
     dependencies,
     detectedTechnologies,
+    architecture: liveData?.architecture,
+    endpoints: liveData?.endpoints,
+    resources: liveData?.resources,
     score,
     scoreBreakdown,
     criticalCount,
@@ -269,6 +302,9 @@ function analyzeWebAppTarget(
     mediumCount,
     lowCount,
     infoCount,
+    confirmedCount: vulnerabilities.filter(v => v.status === 'confirmed').length,
+    potentialCount: vulnerabilities.filter(v => v.status === 'potential').length,
+    falsePositiveCount: vulnerabilities.filter(v => v.status === 'false_positive').length,
     telemetryLogs,
   };
 }
@@ -1113,42 +1149,24 @@ function analyzeSourceCodeTarget(content: string, targetName: string, scanId: st
     });
   }
 
-  // 5. Cross-Site Scripting (XSS)
-  if (content.includes('dangerouslySetInnerHTML') || content.includes('innerHTML =')) {
-    vulnerabilities.push({
-      id: `vuln_xss_${scanId}`,
-      scan_id: scanId,
-      application_id: appId,
-      title: 'Reflected / DOM-Based Cross-Site Scripting (XSS)',
-      severity: 'medium',
-      category: 'Input Security',
-      location: `${targetName}:renderUserContent`,
-      description: 'Unsanitized raw HTML content is injected directly into the DOM using innerHTML or dangerouslySetInnerHTML.',
-      potential_impact: 'Session hijacking, stolen cookie tokens, keylogging, and malicious redirection of authenticated users.',
-      why_it_matters: 'Attackers can embed malicious script payloads inside user comments, usernames, or parameters that execute within victims browsers.',
-      recommended_fix: 'Use automatic context-aware escaping frameworks (React JSX text nodes) or sanitize with DOMPurify before rendering raw markup.',
-      before_code: `<div dangerouslySetInnerHTML={{ __html: userProvidedBio }} />`,
-      after_code: `import DOMPurify from 'isomorphic-dompurify';\n<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(userProvidedBio) }} />`,
-      code_language: 'javascript',
-      cwe_id: 'CWE-79',
-      owasp_category: 'A03:2021-Injection',
-      cvss_score: 6.5,
-      status: 'confirmed',
-      created_at: new Date().toISOString(),
-    });
-  }
+  // 5. Deep DOM XSS & Data-Flow Analysis (SOURCE -> TRANSFORMATION -> SINK)
+  const dfResult = analyzeJavaScriptDataFlow(content, targetName, scanId, appId, `${targetName}:scriptScope`);
+  vulnerabilities.push(...dfResult.vulnerabilities);
 
   // 6. Weak Cryptography (MD5)
-  if (content.includes('md5') || content.includes('Math.random()') && content.includes('token')) {
+  if (content.includes('md5') || (content.includes('Math.random()') && content.includes('token'))) {
     vulnerabilities.push({
       id: `vuln_crypto_${scanId}`,
       scan_id: scanId,
       application_id: appId,
       title: 'Cryptographically Weak Hashing / Pseudo-Random Generation',
       severity: 'medium',
+      confidence: 'high',
       category: 'Cryptography',
       location: `${targetName}:generateToken`,
       description: 'Application uses legacy hashing algorithms (MD5/SHA1) or non-cryptographic PRNG (Math.random) for security-sensitive tokens.',
+      evidence: 'Observed md5 / Math.random PRNG in token generation routine.',
+      detection_logic: 'Pattern matcher identified non-CSPRNG invocation.',
       potential_impact: 'Hash collision attacks, pre-computed rainbow table cracking of passwords, predictable reset tokens.',
       why_it_matters: 'MD5 and SHA-1 have proven collision vulnerabilities. Math.random is pseudo-random and easily predictable.',
       recommended_fix: 'Use bcrypt or Argon2id for password hashing. Use crypto.randomBytes() for tokens.',
@@ -1163,16 +1181,22 @@ function analyzeSourceCodeTarget(content: string, targetName: string, scanId: st
     });
   }
 
+  // Pass all source findings through False Positive Reduction Engine
+  const { classifiedFindings } = FalsePositiveEngine.filterAndClassifyFindings(vulnerabilities);
+
   // If clean code provided, provide a clean posture with baseline hardening note
-  if (vulnerabilities.length === 0) {
-    vulnerabilities.push({
+  if (classifiedFindings.length === 0) {
+    classifiedFindings.push({
       id: `vuln_clean_note_${scanId}`,
       scan_id: scanId,
       application_id: appId,
       title: 'Defense-in-Depth: Enforce Strict Content-Security-Policy',
       severity: 'low',
+      confidence: 'medium',
       category: 'Configuration',
       location: `${targetName}:securityConfig`,
+      evidence: 'All security checks passed with zero critical/high findings.',
+      detection_logic: 'Baseline defense-in-depth posture check.',
       description: 'No critical or high severity vulnerabilities were detected in this code snippet. To further strengthen defense-in-depth, configure CSP and HSTS headers.',
       potential_impact: 'Enhanced protection against inline script injection and protocol downgrades.',
       why_it_matters: 'Security headers provide browser-level barriers against MIME sniffing and clickjacking.',
@@ -1183,16 +1207,16 @@ function analyzeSourceCodeTarget(content: string, targetName: string, scanId: st
       cwe_id: 'CWE-693',
       owasp_category: 'A05:2021-Security Misconfiguration',
       cvss_score: 3.2,
-      status: 'confirmed',
+      status: 'informational',
       created_at: new Date().toISOString(),
     });
   }
 
-  const score = calculateScore(vulnerabilities);
+  const score = calculateScore(classifiedFindings);
   const telemetryLogs = generateTelemetryLogs(targetName, 'AST Parser & Static Pattern Analyzer', lines.length, score);
 
   let crit = 0, high = 0, med = 0, low = 0;
-  vulnerabilities.forEach(v => {
+  classifiedFindings.forEach(v => {
     if (v.severity === 'critical') crit++;
     else if (v.severity === 'high') high++;
     else if (v.severity === 'medium') med++;
@@ -1200,14 +1224,14 @@ function analyzeSourceCodeTarget(content: string, targetName: string, scanId: st
   });
 
   return {
-    vulnerabilities,
+    vulnerabilities: classifiedFindings,
     dependencies,
     detectedTechnologies,
     score,
     scoreBreakdown: {
       authentication: Math.max(30, 100 - (crit * 25) - (high * 10)),
-      authorization: Math.max(35, 100 - (vulnerabilities.some(v => v.category === 'Authorization') ? 35 : 0)),
-      api_security: Math.max(40, 100 - (vulnerabilities.some(v => v.category === 'API Security') ? 30 : 0)),
+      authorization: Math.max(35, 100 - (classifiedFindings.some(v => v.category === 'Authorization') ? 35 : 0)),
+      api_security: Math.max(40, 100 - (classifiedFindings.some(v => v.category === 'API Security') ? 30 : 0)),
       data_protection: Math.max(30, 100 - (crit > 0 ? 35 : 0)),
       dependencies: 92,
       configuration: Math.max(45, 100 - (low * 10)),
@@ -1216,7 +1240,10 @@ function analyzeSourceCodeTarget(content: string, targetName: string, scanId: st
     highCount: high,
     mediumCount: med,
     lowCount: low,
-    infoCount: 0,
+    infoCount: classifiedFindings.filter(v => v.severity === 'informational').length,
+    confirmedCount: classifiedFindings.filter(v => v.status === 'confirmed').length,
+    potentialCount: classifiedFindings.filter(v => v.status === 'potential').length,
+    falsePositiveCount: classifiedFindings.filter(v => v.status === 'false_positive').length,
     telemetryLogs,
   };
 }

@@ -43,15 +43,11 @@ export default function Sidebar() {
       badge: activeCriticals > 0 ? `${activeCriticals} Crit` : undefined,
       badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/40'
     },
+    { label: 'Technologies', href: '/dashboard/technologies', icon: Boxes },
+    { label: 'Attack Surface', href: '/dashboard/attack-surface', icon: TrendingUp },
     { label: 'Dependencies (SCA)', href: '/dashboard/dependencies', icon: Boxes },
     { label: 'Security Reports', href: '/dashboard/reports', icon: FileText },
-    { label: 'Security Progress', href: '/dashboard/progress', icon: TrendingUp },
-    { 
-      label: 'Security Assistant', 
-      href: '/dashboard/assistant', 
-      icon: Bot,
-      aiBadge: true
-    },
+    { label: 'Security Assistant', href: '/dashboard/assistant', icon: Bot, aiBadge: true },
     { 
       label: 'Admin Panel', 
       href: '/dashboard/admin', 

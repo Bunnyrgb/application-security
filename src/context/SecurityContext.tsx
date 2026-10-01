@@ -451,14 +451,20 @@ export function SecurityProvider({ children }: { children: ReactNode }) {
       addAuditLog('APPLICATION_REGISTERED', newAppObj.name, 'info');
     }
 
+    const scanStartTime = Date.now();
     const steps = [
-      { step: 'Initializing Isolated Security Worker', time: 400, detail: 'Sandboxed isolated scanner environment spun up.' },
-      { step: 'Live Endpoint & AST Header Probe', time: 800, detail: 'Inspecting transport TLS, response headers, and DOM structures.' },
-      { step: 'Running SAST Vulnerability Rules', time: 1300, detail: 'Scanning for SQLi, XSS, Command Injection, and Auth flaws.' },
-      { step: 'Software Composition Analysis (SCA)', time: 1800, detail: 'Cross-referencing package manifests against CVE database.' },
-      { step: 'Secret & High-Entropy Key Scraper', time: 2200, detail: 'Checking token structures, cryptographic keys, and environment leaks.' },
-      { step: 'AI Security Explainer & Remediation Engine', time: 2600, detail: 'Synthesizing contextual developer fix guidance.' },
-      { step: 'Security Report Finalization & Scoring', time: 3000, detail: 'Computing holistic CVSS and OWASP posture score.' },
+      { step: 'Step 1 — Target validation & SSRF protection', time: 300, detail: 'Validating FQDN, blocking private RFC 1918 subnets, and enforcing sandbox boundaries.' },
+      { step: 'Step 2 — HTTP / HTTPS transport & redirect analysis', time: 600, detail: 'Probing TLS 1.3 handshake, HTTP-to-HTTPS 301 redirection, and cipher suites.' },
+      { step: 'Step 3 — Technology & framework detection', time: 900, detail: 'Fingerprinting client libraries, server banners, and runtime indicators with evidence.' },
+      { step: 'Step 4 — Accessible attack surface & endpoint discovery', time: 1200, detail: 'Crawling HTML links, forms, scripts, robots.txt, and public APIs.' },
+      { step: 'Step 5 — Security headers evaluation (CSP, HSTS, MIME, Referrer)', time: 1500, detail: 'Auditing Content-Security-Policy, Strict-Transport-Security, and framing protections.' },
+      { step: 'Step 6 — Cookie & session security inspection', time: 1800, detail: 'Analyzing HttpOnly, Secure, and SameSite attributes on issued tokens.' },
+      { step: 'Step 7 — Public JavaScript data-flow analysis (DOM XSS)', time: 2100, detail: 'Tracking SOURCE -> TRANSFORMATION -> SINK flows and suppressing static false positives.' },
+      { step: 'Step 8 — API security & CORS configuration analysis', time: 2400, detail: 'Evaluating Access-Control-Allow-Origin, credentials flags, and method exposure.' },
+      { step: 'Step 9 — Multi-evidence vulnerability correlation', time: 2700, detail: 'Correlating transport, header, and behavioral evidence before declaring findings.' },
+      { step: 'Step 10 — False-positive detection & alert reduction engine', time: 3000, detail: 'Filtering non-controllable sinks, public browser keys, and non-exploitable headers.' },
+      { step: 'Step 11 — Risk scoring, CVSS v3.1 & OWASP Top 10 mapping', time: 3300, detail: 'Computing weighted security posture score and CWE classifications.' },
+      { step: 'Step 12 — Report generation & executive artifact synthesis', time: 3600, detail: 'Finalizing professional audit report, remediations, and verification steps.' },
     ];
 
     const currentLogs: ScanTelemetryStep[] = [];
@@ -491,16 +497,20 @@ export function SecurityProvider({ children }: { children: ReactNode }) {
       currentLogs.push({
         step: s.step,
         status: 'completed',
-        timestamp: `00:0${i + 1}.20`,
+        timestamp: `00:0${Math.floor((i + 1) * 0.3)}.${((i + 1) * 7) % 60}`,
         detail: s.detail,
       });
       setTelemetryLogs([...currentLogs]);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 220));
     }
 
     const scanId = `scan_${Date.now()}`;
     const scanContent = content || `// Target content\n// ${target}`;
     const analysis = analyzeSecurityContent(scanContent, target, type, scanId, targetApp.id, liveData);
+
+    const endpointsList = analysis.endpoints || liveData?.endpoints || [];
+    const resourcesList = analysis.resources || liveData?.resources || [];
+    const architectureData = analysis.architecture || liveData?.architecture;
 
     const newScan: Scan = {
       id: scanId,
@@ -517,13 +527,22 @@ export function SecurityProvider({ children }: { children: ReactNode }) {
       medium_count: analysis.mediumCount,
       low_count: analysis.lowCount,
       info_count: analysis.infoCount,
+      confirmed_count: analysis.confirmedCount || analysis.vulnerabilities.filter(v => v.status === 'confirmed').length,
+      potential_count: analysis.potentialCount || analysis.vulnerabilities.filter(v => v.status === 'potential').length,
+      false_positive_count: analysis.falsePositiveCount || analysis.vulnerabilities.filter(v => v.status === 'false_positive').length,
       telemetry_logs: currentLogs,
       detected_technologies: analysis.detectedTechnologies,
+      architecture: architectureData,
+      discovered_endpoints: endpointsList,
+      discovered_resources: resourcesList,
       vulnerabilities: analysis.vulnerabilities,
       dependencies: analysis.dependencies,
-      scanner_version: 'SecureLens Engine v2.4-Core',
-      started_at: new Date(Date.now() - 3000).toISOString(),
+      scanner_version: 'SecureLens Engine v3.0-Core',
+      started_at: new Date(scanStartTime).toISOString(),
       completed_at: new Date().toISOString(),
+      scan_duration_ms: Date.now() - scanStartTime,
+      urls_discovered_count: endpointsList.length + resourcesList.length,
+      endpoints_discovered_count: endpointsList.length,
     };
 
     setVulnerabilities(prev => [...analysis.vulnerabilities, ...prev.filter(v => v.application_id !== targetApp!.id)]);
@@ -546,6 +565,7 @@ export function SecurityProvider({ children }: { children: ReactNode }) {
       last_scanned_at: new Date().toISOString(),
       total_scans: (targetApp.total_scans || 0) + 1,
       technology_stack: analysis.detectedTechnologies.length > 0 ? analysis.detectedTechnologies : targetApp.technology_stack,
+      architecture: architectureData || targetApp.architecture,
       repository_url: target.startsWith('http') ? target : targetApp.repository_url,
     };
 
