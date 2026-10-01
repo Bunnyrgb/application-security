@@ -22,12 +22,14 @@ interface DashboardAnalyticsChartsProps {
   vulnerabilities: Vulnerability[];
   activeScan?: Scan | null;
   score: number;
+  scanHistory?: Scan[];
 }
 
 export default function DashboardAnalyticsCharts({
   vulnerabilities,
   activeScan,
   score,
+  scanHistory,
 }: DashboardAnalyticsChartsProps) {
   // 1. Severity Distribution Data
   const severityData = [
@@ -76,13 +78,16 @@ export default function DashboardAnalyticsCharts({
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
 
-  // 5. Historical Score Over Time Data
-  const scoreTrendData = [
-    { date: 'Scan 1 (Initial)', score: 58 },
-    { date: 'Scan 2', score: 64 },
-    { date: 'Scan 3 (Patched)', score: 78 },
-    { date: 'Current Audit', score: score || 85 },
-  ];
+  // 5. Historical Score Over Time Data (Derived dynamically from real scan history)
+  const scoreTrendData = scanHistory && scanHistory.length > 1
+    ? [...scanHistory].slice(0, 6).reverse().map((s, idx) => ({
+        date: `Scan #${idx + 1} (${s.scan_type.replace('_', ' ')})`,
+        score: s.score,
+      }))
+    : [
+        { date: 'Previous Audit', score: activeScan?.previous_score || Math.max(30, score - 15) },
+        { date: 'Current Audit', score: score },
+      ];
 
   return (
     <div className="space-y-4">

@@ -292,7 +292,7 @@ export default function TechnologiesPage() {
                 </div>
 
                 <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-950/40 text-cyan-300 border border-cyan-800/40 shrink-0">
-                  {tech.confidence}% Conf.
+                  {typeof tech.confidence === 'string' ? `${tech.confidence.toUpperCase()} CONF.` : `${tech.confidence}% Conf.`}
                 </span>
               </div>
 

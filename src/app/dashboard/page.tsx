@@ -206,6 +206,7 @@ export default function DashboardPage() {
         vulnerabilities={appVulnerabilities} 
         activeScan={activeScan} 
         score={activeApp.current_score} 
+        scanHistory={scanHistory}
       />
 
       {/* Main Scorecard & Posture Overview */}
